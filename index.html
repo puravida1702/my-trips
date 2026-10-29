@@ -828,9 +828,6 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
       g.appendChild(ta); g.appendChild(st);
     }
 
-    g.appendChild(sec('Visited'));
-    if(t.sample){ g.appendChild(h('p',{class:'note'},t.visited?fmtM(t.visited):'Not set')); }
-    else { var vi=h('input',{type:'month',value:t.visited||'','aria-label':'Month visited'}); vi.addEventListener('change',function(){ t.visited=vi.value; saveData(); }); g.appendChild(h('div',{class:'field'},vi)); }
     g.appendChild(sec('Photos'));
     if(!pics.length) g.appendChild(h('p',{class:'note'},t.sample?'Photos you add will show here.':'No photos yet. Tap Add photos.'));
     var gal=h('div',{class:'gal'});
@@ -855,8 +852,6 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
       if(isCover) coverBtn.setAttribute('aria-pressed','true');
       gal.appendChild(h('div',{class:'gitem'},
         pic(p,function(){ openLightbox(target,again,targets,i); }),
-        h('span',{class:'meta'},fmt(p.date)),
-        capInput(t,p),
         coverBtn,act));
     });
     g.appendChild(gal);
