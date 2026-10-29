@@ -1,6 +1,6 @@
-const CACHE='atlas-v3';
+const CACHE='atlas-v4';
 const SHELL=['./','index.html','manifest.webmanifest','atlas-192.png','atlas-512.png'];
-const REMOTE=['fonts.googleapis.com','fonts.gstatic.com'];
+const REMOTE=['fonts.googleapis.com','fonts.gstatic.com','cdn.jsdelivr.net'];
 
 self.addEventListener('install',e=>{
   /* cache each file on its own so a missing icon never blocks the install */

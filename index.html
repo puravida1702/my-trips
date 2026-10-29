@@ -193,6 +193,9 @@ textarea.notes{min-height:160px}
 .field textarea.notes{min-height:90px}
 .field select{border:1px solid var(--gold); background:var(--paper); padding:11px 12px; min-height:48px; width:100%}
 .panel .btnrow.center{justify-content:center}
+.mapbox{position:relative;height:60vh;min-height:300px;border:1px solid #A98C55;background:#E4ECEB;overflow:hidden;touch-action:none}
+.mapbtns{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px}
+.mapcard{display:flex;gap:10px;align-items:center;padding:12px 0}
 .pl{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid rgba(169,140,85,.35)}
 .pl .grow{min-width:0}
 input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
@@ -220,6 +223,7 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
 
 <nav class="bar" aria-label="Main">
   <button class="navb" id="tab-index" type="button" aria-pressed="true">Index</button>
+  <button class="navb" id="tab-map" type="button" aria-pressed="false">Map</button>
   <button class="navb" id="add" type="button">Add</button>
 </nav>
 
@@ -243,15 +247,15 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
 (function(){
   var $=function(s){return document.querySelector(s)};
   var countries=[], cities=[], isSample=false, photoCache={}, ready=false;
-  var state={q:'',c:null,t:null,sort:'az'}, lastBackup='';
+  var state={q:'',c:null,t:null,sort:'az',map:false}, lastBackup='';
 
   /* sample entries, shown until the first real one is added */
   var SAMPLE_C=[{id:'s-it',name:'Italy',sample:true},{id:'s-jp',name:'Japan',sample:true},{id:'s-pt',name:'Portugal',sample:true}];
   var SAMPLE_T=[
-    {id:'s-rome',cid:'s-it',name:'Rome',visited:'2023-05',desc:'Ancient ruins, fountains on every corner and long lunches. Easy to cover on foot.',photos:[],sample:true},
-    {id:'s-flo',cid:'s-it',name:'Florence',desc:'Renaissance art, the Duomo skyline and sunset over the Arno.',photos:[],sample:true},
-    {id:'s-kyo',cid:'s-jp',name:'Kyoto',desc:'Temples, tea houses and quiet lanes in the old town.',photos:[],sample:true},
-    {id:'s-lis',cid:'s-pt',name:'Lisbon',desc:'Hills, yellow trams and pastries at every turn.',photos:[],sample:true}
+    {id:'s-rome',cid:'s-it',name:'Rome',visited:'2023-05',lat:41.9,lng:12.5,desc:'Ancient ruins, fountains on every corner and long lunches. Easy to cover on foot.',photos:[],sample:true},
+    {id:'s-flo',cid:'s-it',name:'Florence',lat:43.77,lng:11.26,desc:'Renaissance art, the Duomo skyline and sunset over the Arno.',photos:[],sample:true},
+    {id:'s-kyo',cid:'s-jp',name:'Kyoto',lat:35.01,lng:135.77,desc:'Temples, tea houses and quiet lanes in the old town.',photos:[],sample:true},
+    {id:'s-lis',cid:'s-pt',name:'Lisbon',lat:38.72,lng:-9.14,desc:'Hills, yellow trams and pastries at every turn.',photos:[],sample:true}
   ];
 
   /* storage: IndexedDB with an in-memory fallback */
@@ -366,11 +370,106 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
   function go(hash){ if(location.hash===hash) route(); else location.hash=hash; }
   function route(keep){
     var m=/^#c\/([^\/]+)(?:\/([^\/]+))?$/.exec(location.hash);
-    state.c=m?decodeURIComponent(m[1]):null; state.t=(m&&m[2])?decodeURIComponent(m[2]):null;
+    state.map=location.hash==='#map'; state.c=m?decodeURIComponent(m[1]):null; state.t=(m&&m[2])?decodeURIComponent(m[2]):null;
     render(); if(!keep) window.scrollTo(0,0);
   }
   window.addEventListener('hashchange',function(){route(false)});
   function say(msg){ var nb=$('#notice'); nb.dataset.msg='1'; nb.hidden=false; nb.textContent=msg; }
+
+  /* map: world outline loaded once (then kept), pins placed by looking up each city */
+  var worldD=null, geoRun=false, mapRedraw=null;
+  function sv(tag,a){ var e=document.createElementNS('http://www.w3.org/2000/svg',tag); for(var k in a) e.setAttribute(k,a[k]); return e; }
+  function topoD(tp){
+    var sc=tp.transform.scale, tr=tp.transform.translate;
+    var arcs=tp.arcs.map(function(a){ var x=0,y=0; return a.map(function(q){ x+=q[0]; y+=q[1]; return [x*sc[0]+tr[0],y*sc[1]+tr[1]]; }); });
+    function ring(r){ var pts=[]; r.forEach(function(i){ var a=i<0?arcs[~i].slice().reverse():arcs[i]; pts=pts.concat(pts.length?a.slice(1):a); });
+      return 'M'+pts.map(function(q){ return (q[0]+180).toFixed(2)+' '+(84-q[1]).toFixed(2); }).join('L')+'Z'; }
+    var d='';
+    tp.objects.countries.geometries.forEach(function(g){
+      var polys=g.type==='Polygon'?[g.arcs]:g.type==='MultiPolygon'?g.arcs:[];
+      polys.forEach(function(P){ P.forEach(function(r){ d+=ring(r); }); });
+    });
+    return d;
+  }
+  function loadWorld(){
+    if(worldD) return Promise.resolve(worldD);
+    return get('worldd').then(function(v){
+      if(v){ worldD=v; return v; }
+      return fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(function(r){ return r.json(); })
+        .then(function(tp){ worldD=topoD(tp); put('worldd',worldD); return worldD; });
+    });
+  }
+  function geocodeAll(){
+    if(geoRun) return Promise.resolve(); geoRun=true;
+    var todo=cities.filter(function(t){ return !t.sample&&typeof t.lat!=='number'&&t.geo!=='none'; });
+    return todo.reduce(function(pr,t){ return pr.then(function(){
+      var c=countryOf(t.cid); if(!c) return;
+      return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=en&q='+encodeURIComponent(t.name+', '+c.name))
+        .then(function(r){ return r.json(); })
+        .then(function(a){ if(a&&a[0]){ t.lat=+a[0].lat; t.lng=+a[0].lon; } else t.geo='none'; return saveData(); })
+        .then(function(){ if(state.map&&mapRedraw) mapRedraw(); })
+        .then(function(){ return new Promise(function(r){ setTimeout(r,1100); }); })
+        .catch(function(){});
+    }); },Promise.resolve()).then(function(){ geoRun=false; });
+  }
+  function renderMap(v){
+    var g=h('div',{class:'gallery'}), note=h('p',{class:'note'},''), box=h('div',{class:'mapbox'}), info=h('div');
+    g.appendChild(h('div',null,h('h2',{class:'gtitle'},'Map'))); g.appendChild(note); g.appendChild(box); g.appendChild(info); v.appendChild(g);
+    var w=box.clientWidth, hh=box.clientHeight, svg=sv('svg',{width:'100%',height:'100%'});
+    var land=sv('path',{fill:'#EFE6D6',stroke:'#A98C55','stroke-width':'0.6','vector-effect':'non-scaling-stroke','fill-rule':'evenodd'}), pins=sv('g',{});
+    svg.appendChild(land); svg.appendChild(pins); box.appendChild(svg);
+    var V={cx:180,cy:71,k:1}, sel=null, kmax=Math.max(360/w,142/hh);
+    function list(){ return cities.filter(function(t){ return typeof t.lat==='number'; }); }
+    function XY(t){ return [t.lng+180,84-t.lat]; }
+    function fit(){
+      var L=list(); if(!L.length){ V={cx:180,cy:71,k:kmax}; return; }
+      var x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+      L.forEach(function(t){ var q=XY(t); x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]); y0=Math.min(y0,q[1]); y1=Math.max(y1,q[1]); });
+      V={cx:(x0+x1)/2,cy:(y0+y1)/2,k:Math.max((x1-x0+24)/w,(y1-y0+24)/hh,0.12)};
+    }
+    function draw(){
+      V.k=Math.min(kmax,Math.max(0.02,V.k)); V.cx=Math.min(360,Math.max(0,V.cx)); V.cy=Math.min(174,Math.max(0,V.cy));
+      svg.setAttribute('viewBox',(V.cx-w*V.k/2)+' '+(V.cy-hh*V.k/2)+' '+(w*V.k)+' '+(hh*V.k));
+      pins.textContent='';
+      list().forEach(function(t){ var q=XY(t);
+        pins.appendChild(sv('circle',{cx:q[0],cy:q[1],r:(t===sel?9:6)*V.k,fill:t===sel?'#4A3A22':'#A98C55',stroke:'#FAF7F2','stroke-width':'1.5','vector-effect':'non-scaling-stroke'})); });
+    }
+    function showInfo(){
+      info.textContent=''; if(!sel) return; var c=countryOf(sel.cid)||{name:''};
+      info.appendChild(h('div',{class:'mapcard'},
+        h('div',{class:'grow'},h('b',null,sel.name),h('div',{class:'sci'},fl(c.name)+c.name+(sel.visited?' \u00b7 '+fmtM(sel.visited):''))),
+        h('button',{class:'btn solid sm',type:'button',on:{click:function(){ go('#c/'+encodeURIComponent(sel.cid)+'/'+encodeURIComponent(sel.id)); }}},'Open')));
+    }
+    function tap(x,y){
+      var best=null, bd=28;
+      list().forEach(function(t){ var q=XY(t), d=Math.hypot((q[0]-V.cx)/V.k+w/2-x,(q[1]-V.cy)/V.k+hh/2-y); if(d<bd){ bd=d; best=t; } });
+      sel=best; showInfo(); draw();
+    }
+    var ptr={}, moved=0;
+    svg.addEventListener('pointerdown',function(e){ try{svg.setPointerCapture(e.pointerId)}catch(_){} ptr[e.pointerId]={x:e.clientX,y:e.clientY}; moved=0; });
+    svg.addEventListener('pointermove',function(e){
+      var p=ptr[e.pointerId]; if(!p) return; var ids=Object.keys(ptr);
+      if(ids.length===1){ V.cx-=(e.clientX-p.x)*V.k; V.cy-=(e.clientY-p.y)*V.k; moved+=Math.abs(e.clientX-p.x)+Math.abs(e.clientY-p.y); }
+      else if(ids.length===2){ var o=ptr[ids[0]===String(e.pointerId)?ids[1]:ids[0]], d0=Math.hypot(p.x-o.x,p.y-o.y), d1=Math.hypot(e.clientX-o.x,e.clientY-o.y); if(d1>0) V.k*=d0/d1; moved+=10; }
+      p.x=e.clientX; p.y=e.clientY; draw();
+    });
+    svg.addEventListener('pointerup',function(e){
+      var p=ptr[e.pointerId]; delete ptr[e.pointerId];
+      if(p&&moved<8&&!Object.keys(ptr).length){ var r=svg.getBoundingClientRect(); tap(e.clientX-r.left,e.clientY-r.top); }
+    });
+    svg.addEventListener('pointercancel',function(e){ delete ptr[e.pointerId]; });
+    function zb(label,fn){ return h('button',{class:'btn sm',type:'button','aria-label':label,on:{click:fn}},label); }
+    box.appendChild(h('div',{class:'mapbtns'},
+      zb('+',function(){ V.k/=1.6; draw(); }), zb('\u2212',function(){ V.k*=1.6; draw(); }),
+      zb('Pins',function(){ fit(); draw(); }), zb('World',function(){ V={cx:180,cy:71,k:kmax}; draw(); })));
+    mapRedraw=function(){ if(!box.isConnected) return; fit(); draw(); };
+    fit(); draw();
+    loadWorld().then(function(d){ land.setAttribute('d',d); }).catch(function(){ note.textContent='The world outline needs an internet connection once. Pins still work.'; });
+    if(cities.some(function(t){ return !t.sample&&typeof t.lat!=='number'&&t.geo!=='none'; })){
+      note.textContent='Placing pins from the city names\u2026 this needs an internet connection.';
+      geocodeAll().then(function(){ if(note.isConnected&&/^Placing/.test(note.textContent)) note.textContent=''; });
+    } else if(!cities.length) note.textContent='Add a city to see its pin here.';
+  }
 
   /* places, captions, backup */
   var CATS=[['stay','Where I stayed'],['eat','Where I ate'],['see','What to see']];
@@ -652,9 +751,9 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
       state.c=state.t=null; c=t=null; if(location.hash) history.replaceState(null,'',location.pathname+location.search);
     }
     var v=$('#view'); v.textContent='';
-    $('#tools').hidden=!!c;
-    $('#tab-index').setAttribute('aria-pressed',String(!c));
-    if(t) renderCity(v,c,t); else if(c) renderCountry(v,c); else { renderIndex(v); v.appendChild(backupBlock()); }
+    $('#tools').hidden=!!c||state.map;
+    $('#tab-index').setAttribute('aria-pressed',String(!c&&!state.map)); $('#tab-map').setAttribute('aria-pressed',String(!!state.map));
+    if(state.map) renderMap(v); else if(t) renderCity(v,c,t); else if(c) renderCountry(v,c); else { renderIndex(v); v.appendChild(backupBlock()); }
     var nb=$('#notice');
     if(isSample && !nb.dataset.msg){ nb.hidden=false; nb.textContent=''; nb.appendChild(h('span',null,h('b',null,'Sample entries. '),'These show how the index looks. Tap Add to start your own list; the samples disappear.')); }
   }
@@ -850,6 +949,7 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
     });
     p.appendChild(f); openSheet();
   }
+  $('#tab-map').addEventListener('click',function(){ go('#map'); });
   $('#add').addEventListener('click',function(){
     var c=state.c?countryOf(state.c):null;
     openAdd(c&&!c.sample?{country:c.name}:null);
