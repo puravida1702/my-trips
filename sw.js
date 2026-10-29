@@ -1,4 +1,4 @@
-const CACHE='atlas-v4';
+const CACHE='atlas-v5';
 const SHELL=['./','index.html','manifest.webmanifest','atlas-192.png','atlas-512.png'];
 const REMOTE=['fonts.googleapis.com','fonts.gstatic.com','cdn.jsdelivr.net'];
 
