@@ -817,11 +817,13 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
     if(t.sample){
       g.appendChild(h('p',{class:'note'},t.desc||''));
     } else {
-      var ta=h('textarea',{class:'notes',rows:'6','aria-label':'Description of '+t.name,placeholder:'What it was like, where you stayed, what to eat\u2026'});
-      ta.value=t.desc||'';
+      var ta=h('textarea',{class:'notes',rows:'1','aria-label':'Description of '+t.name,placeholder:'What it was like\u2026'});
+      ta.value=t.desc||''; ta.style.minHeight='48px'; ta.style.resize='none'; ta.style.overflow='hidden';
+      var fit=function(){ ta.style.height='auto'; ta.style.height=ta.scrollHeight+2+'px'; };
+      setTimeout(fit,0);
       var st=h('p',{class:'note'},''), tmr=null;
       var saveDesc=function(){ t.desc=ta.value; saveData().then(function(){ st.textContent='Saved'; }); };
-      ta.addEventListener('input',function(){ st.textContent=''; clearTimeout(tmr); tmr=setTimeout(function(){tmr=null;saveDesc();},500); });
+      ta.addEventListener('input',function(){ fit(); st.textContent=''; clearTimeout(tmr); tmr=setTimeout(function(){tmr=null;saveDesc();},500); });
       ta.addEventListener('blur',function(){ if(tmr){ clearTimeout(tmr); tmr=null; saveDesc(); } });
       g.appendChild(ta); g.appendChild(st);
     }
@@ -829,7 +831,6 @@ input.cap{width:100%;font-size:14px;padding:8px 10px;margin:4px 0}
     g.appendChild(sec('Visited'));
     if(t.sample){ g.appendChild(h('p',{class:'note'},t.visited?fmtM(t.visited):'Not set')); }
     else { var vi=h('input',{type:'month',value:t.visited||'','aria-label':'Month visited'}); vi.addEventListener('change',function(){ t.visited=vi.value; saveData(); }); g.appendChild(h('div',{class:'field'},vi)); }
-    placesBlock(g,c,t);
     g.appendChild(sec('Photos'));
     if(!pics.length) g.appendChild(h('p',{class:'note'},t.sample?'Photos you add will show here.':'No photos yet. Tap Add photos.'));
     var gal=h('div',{class:'gal'});
